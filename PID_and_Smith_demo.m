@@ -1,8 +1,15 @@
-% 
-% Sergey D. Stavisky 2021
+% Demonstrates a PID controller that commands velocities of a 2D cursor trying to reach a target.
+% Can incorporate feedback latency to illustrate the challenges of control with delayed feedback,
+% and use a Smith Predictor to compensate for this.
+% (this is written for a teaching demo).
+%
+% Sergey D. Stavisky March 2021
 
 
 function pidDemo
+    % STUDENTS: START HERE
+    % This is the main script; run this for the simulation. Various parameters are defined
+    % below, and you can adjust them to see different scenarios play out.
     fprintf('Starting...\n')
     
     % --------------------------------
@@ -17,19 +24,7 @@ function pidDemo
     showObservedAndPredicted = true; 
 %     showObservedAndPredicted = false;
 
-    
-    % Physical Plant Noise
-    % In this simualation, a random additional input is applied to the cursor. You can imagine
-    % it's some noise inherent in the plant controller (though in the real world this is more
-    % likely to be at least somewhat dependent on the manipulated variable (e.g., more noise
-    % when we command larger velocities).
-%     noiseUpdateInterval = 0.500; % every this many seconds, the plant output noise is updated
-%     noiseMu = 1; % Mean of distribution of thise noise (separate random draws for horizontal and vertical) 
-%     noiseSigma = 1; % Standard deviation of distribution of thise noise (separate random draws for horizontal and vertical)
-    % use these to have no noise:
-%     noiseMu = 0;
-%     noiseSigma = 0;
-    
+  
     % Latency
     feedbackDelay = 0.250; % The controller has access to the cursor position this many seconds ago.
                            % Fun other thing to play with: Delays of 400 ms or more and it gets unstable using the
@@ -46,20 +41,20 @@ function pidDemo
     % --------------------------------
     % Define the controller
     K_p = 1.5;
-%         K_p = 1.9;
     T_i = 0.35; % Integral time (s)
     T_d = 0.050;
-%         T_d = 0;
 
+    % Uncomment below for a PI or P Controller
 %     T_i = 9999999; % Essentially no Integration
-%     T_d = 0; % no D
+%     T_d = 0; % no Derivative control (note to students: this is often skipped in the
+%                                       real-world due to the likelihood of large errors in calculating derivatives)
 
     % Whether or not to use a Smith predictor?
     % Note: when implemented below, we'll assume the Smith Predictor knows the 
     % true feedbackDelay.
-%     useSmithPredictor = true;
+    useSmithPredictor = true;
     modeledFeedbackDelay = feedbackDelay; % what the Smith Predictor thinks the feedback delay is
-    useSmithPredictor = false;
+%     useSmithPredictor = false;
  
     % Define a perturbation
     % The matrix below defines what 2D perturbation vector is applied to the cursor at each time step of the simulation.
@@ -70,6 +65,7 @@ function pidDemo
     perturnOffsetTime = 0.350; % when the perturbation stops (in seconds)
     perturbVec = [-7, -6];
 %     perturbVec = [0, 0]; % use this to have no  perturbation
+
     % now implement this perturbation into the time x steps matrix that gets applied during the simulation
     perturbations = zeros( Tmax/dt + 1, 2 );
     startStep = ceil( perturbOnsetTime / dt ); % ensures it's an integer, for indexing
@@ -96,8 +92,6 @@ function pidDemo
     x = startPos;
     xLog(1,:) = startPos;
     
-    
-
     
     % Initialize the controller
     % Recall that it keeps an integral of error; we'll store that in variable integrErr
@@ -162,8 +156,7 @@ function pidDemo
             y_predicted = PV + recentSummedCommands;
             
             
-           
-            % log it
+            % log the prediction; this is also used for the Smith Predictor outer loop on line 173
             Ypredicted(step,:) = y_predicted';
             
             % Also calculate the errorOfPrediction; this is the difference between our forward model
@@ -178,19 +171,12 @@ function pidDemo
                 previouslyPredictedY = Ypredicted(pastPredictionStep,:)'; % transpose so it's a column vector as used elsewhere                
             end
             errorOfPrediction = PV - previouslyPredictedY;
-            
-            
+              
             err = SP - (y_predicted + errorOfPrediction);
         end
         
         
-        
- 
-        
-        if step == 1
-            prevErr = err; % avoids sudden instability due to a jump
-        end
-        
+
         % Update integral of error
         integrErr = integrErr + (err * dt);
         
@@ -215,31 +201,12 @@ function pidDemo
         % --------------------------------
         %  SIMULATION UPDATES HERE ("physics")
         % --------------------------------
-        % For now let's assume control input just gets mapped to position and happens on the next
-        % time step. Howeve
-%         if norm(u) > maxVel*dt
-%             u_out = u * ( (maxVel*dt)/norm(u)  );
-%             fprintf('Clipped\n')
-%         else
-%             u_out = u; % can be fully implemented
-%         end
-       
-        
-        % Generate new noise every noiseUpdateInterval sec
-%         if ~mod( t, noiseUpdateInterval ) || t== 5*dt
-%             % random draw for x and y velocity commands
-%             noise_hor = noiseSigma*randn + noiseMu;
-%             noise_vert = noiseSigma*randn + noiseMu;
-%             noise = [noise_hor; noise_vert];
-%         end
-
         % Apply the perturbation here
         thisStepPerturbation = perturbations(step,:)'; % trabspose so it's a column vector like other variables we're using
         u_out = u + thisStepPerturbation; % total applied input to the plant is what the controller commands + the noise.
         
-        
-        
-        % display the current state of the simulation
+                
+        % Display the current state of the simulation
         sAx = plotCurrentState( sAx, t, x, u, thisStepPerturbation, targetPos );
         if showObservedAndPredicted
             if useSmithPredictor
@@ -257,47 +224,54 @@ function pidDemo
         step = step + 1;
     end
     
-    
+
     fprintf('Finished\n')
     
-    figure;
-    tplot = 0 : dt : Tmax;
-    subplot(3,1,1);
-    plot( tplot, P(:,1) );
-    ylabel('P (hor)')
-    
-    subplot(3,1,2);
-    plot( tplot, I(:,1) );
-    ylabel('I (hor)')
-    
-    subplot(3,1,3);
-    plot( tplot, D(:,1) );
-    ylabel( 'D (hor)' )
-    xlabel( 'T (s)' )
-
+    % Uncomment below to see what the three components of the PID controller contributed at
+    % each step:
+%     figure;
+%     tplot = 0 : dt : Tmax;
+%     subplot(3,1,1);
+%     plot( tplot, P(:,1) );
+%     ylabel('P (hor)')
+%     
+%     subplot(3,1,2);
+%     plot( tplot, I(:,1) );
+%     ylabel('I (hor)')
+%     
+%     subplot(3,1,3);
+%     plot( tplot, D(:,1) );
+%     ylabel( 'D (hor)' )
+%     xlabel( 'T (s)' )
 end
 
 
 
 
 
+% --------------------------------
+%        HELPER FUNCTIONS
+% --------------------------------
+% The below functions handle the graphics for visualizing the simulation. You don't need
+% to understand them to learn the core lesson of this demonstration, but you may find this
+% to be a helpful example of how to exert precise control of graphics in MATLAB.
+
 function sAx = initFigure( Tmax )
     % Initiates the figure used for visualizing the simulation.
     % 
     % Inputs:  
-    %   Tmax    how long simulation will run
+    %   Tmax    how long simulation will run; used to pre-scale the time-plots on left.
     %   
     % Outputs: 
     %   sAx     structure of different handles for various pieces of the figure.
     
     % Visualization assumptions
-    % assume plotted workspace range [0 10], [0 10]
-    xLimits = [0 15];
-    yLimits = [-2 13];
+    xLimits = [0 15]; % horizontal limits of shown workspance
+    yLimits = [-2 13]; % vertical limits of shown workspance
     targetDiameter = 1.5; % how big to draw target
     cursorDiameter = 1; % how big to draw cursor(s)
     
-     % just to initialize, will update based on simulation
+     % just to initialize graphics, will update based on simulation in main loop
     cursorPos = [1; 1];
     targetPos = [5; 5]; 
     u = [2; 1];
@@ -365,8 +339,7 @@ function sAx = initFigure( Tmax )
     sAx.hTime.VerticalAlignment = 'top';
     sAx.hTime.FontSize = 14;
     
-  
-    
+
     % Make X and Y position and target plots
     sAx.axhX = axes( 'Position', [0.08 0.58 0.35 0.4] );
     sAx.xPlot = plot( nan, nan ); % will be updated during simulation
@@ -379,9 +352,7 @@ function sAx = initFigure( Tmax )
     % now draw the target coordinate
     sAx.xTargetPlot = plot( xLimits, [targetPos(1), targetPos(1)], 'Color', [0.5 0.5 0.5], 'LineWidth', 1 );    
     
-    
     sAx.axhY = axes( 'Position', [0.08 0.1 0.35 0.4] ); 
-    
     sAx.yPlot = plot( nan, nan ); % will be updated during simulation
     sAx.yPlot.LineWidth = 2;
     xlim( [0 Tmax] )
@@ -399,12 +370,16 @@ function sAx = plotCurrentState( sAx, t, x, u, u_external, targetPos )
     % Updates the plot with the current state of the simulation
      % 
     % Inputs:  
-    %   sAx     structure of different graphics object handles created by initFigure subfunction.
-    %   
+    %   sAx          Structure of different graphics object handles created by initFigure subfunction.
+    %   t            Current simulation time step.
+    %   x            2x1 vector of the state of the cursor (it's horizontal and vertical position).
+    %   u            The manipulated variable, i.e., velocity commanded to the cursor.
+    %   u_external   External velocity applied to the cursor (i.e., perturbation).
+    %   targetPos    Where to draw the target.
     %   
     % Outputs: 
-    %   sAx     structure of different handles for various pieces of the figure (same as the input;
-    %           the handles should not have changed, just their underlying values).
+    %   sAx          structure of different handles for various pieces of the figure (same as the input;
+    %                the handles should not have changed, just their underlying values).
     
     scaleCommandsBy = 0.5; % graphically scales the vectors u and u_external (the drawn arrows) by this amount; helps keep them visible on screen.
     
@@ -462,6 +437,3 @@ function plotObservedCursor( sAx, y )
     % Updates the graphics of the where the controller "sees" the (delayed) cursor position with input coordinate y
     sAx.hCursorObserved.Position(1:2) = [y(1) - 0.5*sAx.hCursorObserved.Position(3), y(2) - 0.5*sAx.hCursorObserved.Position(4)];
 end
-
-
-
