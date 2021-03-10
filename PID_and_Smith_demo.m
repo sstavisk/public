@@ -137,12 +137,11 @@ function pidDemo
         
         
         if useSmithPredictor
-            % Forward model where it thinks the cursor is. Here we use a very simple predictive model:
-            % take the currently observed position of the cursor, and assume the output velocity commanded upon it
-            % for the past modeledFeedbackDelay ago had acted upon it. output
-            % (note: a more sophisticated model would be to use the whole most recent 
-            % velocity has acted on it fo
-%             y_predicted = PV + u * dt * modeledFeedbackDelay/dt;
+            % Forward model where it thinks the cursor is. Here we use a simple predictive model:
+            % take the recent history of commands we gave since the last observed position of the cursor,
+            % integrate them, and add that vector to the last seen position. In other words, based on the commands
+            % we've given, where did we move the cursor? This does NOT take into account potential perturbations
+            % (which we don't know about and cannot predict).
 
             % Look back modeledFeedbackDelay ago; what time step was that?
             pastPredictionStep = round( (t - modeledFeedbackDelay)/dt ); %round to make it an integer so we can index into past history of positions
@@ -153,10 +152,9 @@ function pidDemo
             % take the sum of these (and multiply by dt) to get the integrated past history of
             % commands.
             recentSummedCommands = dt.* sum( recentCommandHistory, 1 )'; % sum across columns, element-wise multiply; note transpose into column vector
-            y_predicted = PV + recentSummedCommands;
+            y_predicted = PV + recentSummedCommands;            
             
-            
-            % log the prediction; this is also used for the Smith Predictor outer loop on line 173
+            % log the prediction; this is also used for the Smith Predictor outer loop on line 169
             Ypredicted(step,:) = y_predicted';
             
             % Also calculate the errorOfPrediction; this is the difference between our forward model
@@ -174,8 +172,7 @@ function pidDemo
               
             err = SP - (y_predicted + errorOfPrediction);
         end
-        
-        
+                
 
         % Update integral of error
         integrErr = integrErr + (err * dt);
@@ -192,10 +189,12 @@ function pidDemo
         I(step,:) = (1/T_i)*integrErr;
         D(step,:) = T_d*derivErr;
         
-        u = K_p .* (err + (1/T_i)*integrErr + T_d*derivErr);
-        U(step,:) = u; % log it
-      
+        % Key step: command a velocity (i.e., manipulated variable).
+        % note this is the Standard Form which looks a bit different than the continuous form in
+        % the notes.
+        u = K_p .* (err + (1/T_i)*integrErr + T_d*derivErr); 
         
+        U(step,:) = u; % log commands      
         
         
         % --------------------------------
@@ -204,7 +203,7 @@ function pidDemo
         % Apply the perturbation here
         thisStepPerturbation = perturbations(step,:)'; % trabspose so it's a column vector like other variables we're using
         u_out = u + thisStepPerturbation; % total applied input to the plant is what the controller commands + the noise.
-        
+
                 
         % Display the current state of the simulation
         sAx = plotCurrentState( sAx, t, x, u, thisStepPerturbation, targetPos );
